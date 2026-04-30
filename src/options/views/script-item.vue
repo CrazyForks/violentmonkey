@@ -255,10 +255,12 @@ const onTagClick = item => emit('clickTag', item);
 const onToggle = () => emitScript('toggle');
 const onUpdate = async evt => {
   evt.preventDefault(); // for contextmenu
-  if (props.script.$canUpdate !== -1
+  let what = props.script;
+  if (what.$canUpdate !== -1
   || await showConfirmation(i18n('confirmManualUpdate'))) {
-    (evt = [props.script]).force = evt.type !== 'click';
-    emit('update', evt);
+    what = [what];
+    what.force = evt.type !== 'click';
+    emit('update', what);
   }
 };
 /**
