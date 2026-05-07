@@ -369,10 +369,9 @@ function onHeadersReceived(info) {
   const bag = cache.get(key);
   // The INJECT data is normally already in cache if code and values aren't huge
   if (bag && !bag[FORCE_CONTENT] && bag[INJECT]?.[SCRIPTS] && !skippedTabs[info.tabId]) {
-    const ffReg = IS_FIREFOX && info.url.startsWith('https:')
-      && detectStrictCsp(info, bag);
     const res = xhrInject && prepareXhrBlob(info, bag);
-    return ffReg ? ffReg.then(res && (() => res)) : res;
+    return IS_FIREFOX && info.url.startsWith('https:') && detectStrictCsp(info, bag, res)
+      || res;
   }
 }
 
@@ -660,8 +659,9 @@ function unregisterScriptFF(bag) {
 /**
  * @param {chrome.webRequest.WebResponseHeadersDetails} info
  * @param {VMInjection.Bag} bag
+ * @param {browser.webRequest.BlockingResponse} response
  */
-function detectStrictCsp(info, bag) {
+function detectStrictCsp(info, bag, response) {
   const h = info[kResponseHeaders].find(findCspHeader);
   if (!h) return;
   let tmp = '';
@@ -670,9 +670,9 @@ function detectStrictCsp(info, bag) {
     tmp += m[2] ? (defaultSrc = m[3]) : m[1] ? (scriptElemSrc = m[3]) : (scriptSrc = m[3]);
   }
   if (!tmp) return;
-  tmp = tmp.match(NONCE_RE);
-  if (tmp) {
-    bag[INJECT].nonce = tmp[1];
+  const nonce = tmp.match(NONCE_RE);
+  if (nonce) {
+    bag[INJECT].nonce = nonce[1];
   } else if (
     scriptSrc && !scriptSrc.includes(UNSAFE_INLINE) ||
     scriptElemSrc && !scriptElemSrc.includes(UNSAFE_INLINE) ||
@@ -682,13 +682,13 @@ function detectStrictCsp(info, bag) {
   } else {
     return;
   }
-  m = unregisterScriptFF(bag);
-  if (m && !tmp) {
-    // Registering only without nonce, otherwise FF will incorrectly reuse it on tab reload
-    return Promise.all([
-      m,
+  // Always unregister, then re-register if no nonce to avoid reusing the old value on tab reload
+  if (contentScriptsAPI && unregisterScriptFF(bag) && !nonce) {
+    bag.csStop?.(); // resolving a potential deadlock in CS API on a fast redirect
+    return Promise.race([
       bag[CSAPI_REG] = registerScriptDataFF(bag[INJECT], info.url),
-    ]);
+      new Promise(resolve => (bag.csStop = resolve)),
+    ]).then(() => (bag.csStop = null, response));
   }
 }
 

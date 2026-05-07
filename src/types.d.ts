@@ -322,6 +322,7 @@ declare namespace VMInjection {
    */
   interface Bag {
     csReg?: Promise<browser.contentScripts.RegisteredContentScript>;
+    csStop?: Function;
     forceContent?: boolean;
     inject: VMInjection;
     more: EnvDelayed;
