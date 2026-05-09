@@ -110,6 +110,7 @@
         </locale-group>
         <vm-code
           :value="current.value"
+          :reset="resetEditor"
           :cm-options="cmOptions"
           ref="$value"
           class="h-100 mt-1"
@@ -165,6 +166,7 @@ const editAsString = ref();
 const editorValueShown = ref();
 const isActive = ref();
 const current = ref();
+const resetEditor = ref(0);
 const loading = ref(true);
 const page = ref();
 const values = ref();
@@ -372,6 +374,11 @@ async function updateValue(data, isSave) {
     data.keyOrig = key;
     if (key in valuesObj) addToTrash(key);
     if (renamed && keyOrig in valuesObj) addToTrash(keyOrig);
+    if (!data.isStr && editAsString.value && typeof jsonValue === 'string') {
+      data.isStr = true;
+      data.value = jsonValue;
+      if (!jsonValue) resetEditor.value++; // forcing because the old editor `value` is also ''
+    }
   }
   if (rawValue) valuesObj[key] = rawValue;
   else delete valuesObj[key];
@@ -388,8 +395,9 @@ function onNew() {
     isNew: true,
     key: '',
     value: '',
-    ...currentObservables,
   };
+  resetEditor.value++; // clearing any unsaved text in the editor with `value` of ''
+  onChange(false, ''); // set the error text for empty JSON
 }
 function addToTrash(
   key,
@@ -457,6 +465,7 @@ async function onSave(arg) {
   if (arg !== K_OK) {
     cm.markClean();
     cur.dirty = 0;
+    cur.isNew = false;
   } else {
     current.value = null;
   }
@@ -479,14 +488,13 @@ function onCancel() {
   }
   current.value = null;
 }
-function onChange(isChanged) {
+function onChange(isChanged, str = cm.getValue()) {
   const cur = current.value;
   cur.dirty = cur.dirty & ~2 | 2 * isChanged;
   cur.error = null;
   const t0 = performance.now();
-  const str = cm.getValue().trim();
   try {
-    if (cur.isAll && str[0] !== '{') throw 'Expected { at position 0';
+    if (cur.isAll && !/^\s*{/.test(str)) throw 'Expected { at position 0';
     if (cur.jsonPaused) return;
     cur.jsonValue = cur.isStr && editAsString.value ? str : JSON.parse(str);
   } catch (e) {

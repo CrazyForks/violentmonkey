@@ -511,6 +511,9 @@ function setupSavePosition({ id: curWndId, tabs }) {
     justify-content: space-between;
     border-bottom: var(--border);
     background: inherit;
+    a.btn-ghost {
+      padding: 0 2px;
+    }
   }
   &-name {
     font-weight: bold;
@@ -599,9 +602,6 @@ function setupSavePosition({ id: curWndId, tabs }) {
   }
   .readonly {
     opacity: .75; /* opacity plays well with custom editor colors */
-  }
-  a.btn-ghost {
-    padding: 0 2px;
   }
   [data-num]::after {
     content: ' (' attr(data-num) ')';
