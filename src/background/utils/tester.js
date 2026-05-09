@@ -39,6 +39,8 @@ const RE_MATCH_BAD = re`/^
   # detecting a missing / for path
   (?:\/(.*))?
 /x`;
+/** Case-sensitive because it's an internal URL */
+const RE_ABOUT_URL_PARTS = /^(about):()(.*)/;
 /** Simpler matching for a valid URL */
 const RE_URL_PARTS = /^([^:]*):\/\/([^/]*)\/(.*)/;
 const RE_STR_ANY = '(?:|[^:/]*?\\.)';
@@ -154,8 +156,8 @@ export function testerBatch(arr) {
 function setContext(url) {
   curUrl = url;
   [, curScheme, curHost, curTail] = url
-    ? url.match(RE_URL_PARTS)
-    : ['', '', '', '']; // parseMetaWithErrors uses an empty url for tests
+    && (url.match(RE_URL_PARTS) || url.charCodeAt(0) === 97/*a*/ && url.match(RE_ABOUT_URL_PARTS))
+    || ['', '', '', '']; // parseMetaWithErrors uses an empty url for tests
   urlResultsMat = url ? (cacheResultMat.get(url) || cacheResultMat.put(url, {})) : null;
   urlResultsInc = url ? (cacheResultInc.get(url) || cacheResultInc.put(url, {})) : null;
 }
