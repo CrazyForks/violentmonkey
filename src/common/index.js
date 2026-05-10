@@ -2,6 +2,7 @@
 
 import { browser } from './consts';
 import { deepCopy } from './object';
+import { noop } from './util';
 
 export { normalizeKeys } from './object';
 export * from './script';
@@ -140,6 +141,12 @@ export function ignoreNoReceiver(err) {
   }
 }
 
+/** @return {chrome.tabs.Tab | void} */
+export function getTab(tabId) {
+  return browser.tabs.get(tabId).catch(noop);
+}
+
+/** @return {Promise<chrome.tabs.Tab | void>} */
 export async function getActiveTab(windowId = -2 /*chrome.windows.WINDOW_ID_CURRENT*/) {
   return (
     await browser.tabs.query({
