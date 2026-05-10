@@ -34,11 +34,13 @@
         <a
           ref="$editAll"
           class="edit-values-row"
+          :class="{ active: current?.isAll }"
           @click="onEditAll" tabindex="0" v-text="i18n('editValueAllHint')" :data-num="keys.length"/>
         <div
           v-for="key in pageKeys"
           :key
           class="edit-values-row flex monospace-font"
+          :class="{ active: key === current?.keyOrig }"
           @keydown.delete.ctrl.exact="onRemove(key)"
           @click="onEdit(key)">
           <div class="ellipsis">
@@ -94,7 +96,7 @@
         <span v-text="i18n('valueLabelKey')"/>
         <input type="text" v-model="current.key" :readOnly
                ref="$key"
-               class="w-100"
+               class="w-100 monospace-font"
                spellcheck="false"
                :class="{ dirty: (current.dirty = current.dirty & ~1 | (k = current.key !== current.keyOrig), k) }">
       </label>
@@ -549,6 +551,12 @@ $lightBorder: 1px solid var(--fill-2);
 .edit-values {
   gap: 1em;
   overflow: hidden;
+  .trash {
+    transition: opacity 0s .1s;
+    &:not(:hover) {
+      opacity: .5;
+    }
+  }
   @media (max-width: 1200px) {
     &-panel {
       flex: 1 1 100%;
@@ -589,6 +597,12 @@ $lightBorder: 1px solid var(--fill-2);
   &-row {
     border: $lightBorder;
     cursor: pointer;
+    &.active {
+      a&, > div:first-child {
+        background-color: hsla(210, 100%, 50%, .1);
+        font-weight: bold;
+      }
+    }
     .main > &:first-child {
       padding: 8px 6px;
       display: block;
@@ -658,6 +672,7 @@ $lightBorder: 1px solid var(--fill-2);
       > input {
         margin: .25em 0;
         padding: .25em;
+        font-weight: bold;
       }
     }
   }
