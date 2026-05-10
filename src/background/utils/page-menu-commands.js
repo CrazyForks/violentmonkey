@@ -7,7 +7,7 @@ import { isEmpty } from '@/common/util';
 import { getScriptById } from './db';
 import { addPublicCommands } from './init';
 import { hookOptionsInit } from './options';
-import { tabsOnActivated, tabsOnRemoved } from './tabs';
+import { forEachTab, tabsOnActivated, tabsOnRemoved } from './tabs';
 
 /**
  * ## Limitations
@@ -147,8 +147,11 @@ async function onFocusChanged(windowId) {
 // Create/remove the page context menu based on the Settings option.
 
 if (contextMenus) {
-  hookOptionsInit(({ [kPageMenuCommands]: state }) => {
-    if (state != null && state !== !!tabData) setEnabled(state);
+  hookOptionsInit(({ [kPageMenuCommands]: state }, firstRun) => {
+    if (state != null && state !== !!tabData) {
+      setEnabled(state);
+      if (!firstRun) forEachTab(tab => sendTabCmd(tab.id, kUseMenu, state));
+    }
   });
 }
 
