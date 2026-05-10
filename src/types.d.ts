@@ -284,6 +284,8 @@ declare interface VMInjection extends VMInjectionDisabled, VMInjectionFlags {
   page: boolean;
   scripts: VMInjection.Script[];
   sessionId: string;
+  /** show GM_registerMenuCommand in context menu */
+  useMenu: boolean;
 }
 
 /**

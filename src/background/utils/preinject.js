@@ -1,10 +1,8 @@
 import {
   getActiveTab, getScriptName, getScriptPrettyUrl, getUniqId, sendTabCmd,
-} from '@/common';
-import {
-  __CODE, TL_AWAIT, UNWRAP, XHR_COOKIE_RE,
-  BLACKLIST, HOMEPAGE_URL, KNOWN_INJECT_INTO, META_STR, METABLOCK_RE, NEWLINE_END_RE,
-  kOrigTag, kTag,
+} from '@/common';import {
+  __CODE, BLACKLIST, GLOB_ALL, HOMEPAGE_URL, KNOWN_INJECT_INTO, kOrigTag, kTag, META_STR,
+  METABLOCK_RE, NEWLINE_END_RE, TL_AWAIT, UNWRAP, XHR_COOKIE_RE,
 } from '@/common/consts';
 import initCache from '@/common/cache';
 import {
@@ -12,9 +10,10 @@ import {
 } from '@/common/object';
 import { CACHE_KEYS, getScriptsByURL, kTryVacuuming, PROMISE, REQ_KEYS, VALUE_IDS } from './db';
 import { setBadge } from './icon';
-import { addOwnCommands, addPublicCommands, commands } from './init';
+import { addOwnCommands, addPublicCommands } from './init';
 import { clearNotifications } from './notifications';
 import { hookOptionsInit } from './options';
+import { addMenuConfig, setMenus } from './page-context-menu-commands';
 import { popupTabs } from './popup-tracker';
 import { clearRequestsByTabId, reifyRequests } from './requests';
 import { kSetCookie } from './requests-core';
@@ -37,7 +36,7 @@ let xhrInjectKey;
 const sessionId = getUniqId();
 const API_HEADERS_RECEIVED = browser.webRequest.onHeadersReceived;
 const API_CONFIG = {
-  urls: ['*://*/*'], // `*` scheme matches only http and https
+  urls: [GLOB_ALL], // `*` scheme matches only http and https
   types: ['main_frame', 'sub_frame'],
 };
 const API_EXTRA = [
@@ -180,6 +179,7 @@ addPublicCommands({
     if (scripts) {
       triageRealms(scripts, bag[FORCE_CONTENT] || forceContent, tabId, frameId, bag);
       addValueOpener(scripts, tabId, frameDoc);
+      addMenuConfig(inject);
       if (isTop < 2/* skip prerendered pages*/ && scripts.length) {
         updateVisitedTime(scripts);
       }
@@ -219,7 +219,7 @@ addPublicCommands({
       [S_CACHE]: envCache,
     };
   },
-  Run({ [IDS]: ids, menus, reset }, src) {
+  Run({ [IDS]: ids, reset }, src) {
     const {
       [kDocumentId]: docId,
       [kTop]: isTop,
@@ -239,7 +239,7 @@ addPublicCommands({
       addValueOpener(ids, tabId, getFrameDocId(isTop, docId, src[kFrameId]));
     }
     if (reset) {
-      commands.UpdateTabMenuCommands({ menus, reset }, src);
+      setMenus({}, src, reset);
     }
   },
 });

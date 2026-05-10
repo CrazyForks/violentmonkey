@@ -7,7 +7,7 @@ import { popupTabs } from './popup-tracker';
 import storage, { S_CACHE } from './storage';
 import { forEachTab, getTabUrl, injectableRe, openDashboard, tabsOnRemoved, tabsOnUpdated } from './tabs';
 import { testBlacklist } from './tester';
-import { tryHandlePageMenuCommand } from './page-context-menu-commands';
+import { contextMenus, handlePageMenuCommand } from './page-context-menu-commands';
 import { FIREFOX, ua } from './ua';
 
 /** 1x + HiDPI 1.5x, 2x */
@@ -42,8 +42,6 @@ const browserAction = (() => {
     'setTitle',
   ], fn => (fn ? makeMethod(fn) : noop));
 })();
-// Promisifying explicitly because this API returns an id in Firefox and not a Promise
-const contextMenus = chrome.contextMenus;
 
 /** @type {{ [tabId: string]: VMBadgeData }}*/
 export const badges = {};
@@ -126,8 +124,9 @@ init.then(async () => {
 });
 
 contextMenus?.onClicked.addListener(({ menuItemId: id, frameId }, tab) => {
-  if (tryHandlePageMenuCommand(id, tab, frameId)) return;
-  handleHotkeyOrMenu(id, tab);
+  if (!handlePageMenuCommand(id, tab, frameId)) {
+    handleHotkeyOrMenu(id, tab);
+  }
 });
 tabsOnRemoved.addListener(id => delete badges[id]);
 tabsOnUpdated.addListener((tabId, { url }, tab) => {

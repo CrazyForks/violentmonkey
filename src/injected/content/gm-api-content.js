@@ -2,7 +2,7 @@ import bridge, { addBackgroundHandlers, addHandlers, grantless } from './bridge'
 import { addNonceAttribute } from './inject';
 import { decodeResource, elemByTag, makeElem, nextTask, sendCmd } from './util';
 
-export const menus = createNullObj();
+const menus = createNullObj();
 const HEAD_TAGS = ['script', 'style', 'link', 'meta'];
 const { toLowerCase } = '';
 const { [IDS]: ids } = bridge;
@@ -11,6 +11,10 @@ let isPopupShown;
 let grantlessUsage;
 
 addBackgroundHandlers({
+  [kUseMenu](state) {
+    bridge[kUseMenu] = state;
+    if (state) sendSetPopup();
+  },
   async PopupShown(state) {
     await bridge[REIFY];
     isPopupShown = state;
@@ -46,13 +50,11 @@ addHandlers({
   RegisterMenu({ id, key, val }) {
     (menus[id] || (menus[id] = createNullObj()))[key] = val;
     sendSetPopup(true);
-    sendCmd('UpdateTabMenuCommands', { menus });
   },
 
   UnregisterMenu({ id, key }) {
     delete menus[id]?.[key];
     sendSetPopup(true);
-    sendCmd('UpdateTabMenuCommands', { menus });
   },
 });
 
@@ -71,5 +73,7 @@ export async function sendSetPopup(isDelayed) {
       grantless: grantlessUsage,
       menus,
     });
+  } else if (bridge[kUseMenu]) {
+    await sendCmd('SetMenus', menus);
   }
 }

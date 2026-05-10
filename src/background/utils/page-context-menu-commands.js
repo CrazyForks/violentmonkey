@@ -1,265 +1,99 @@
-import { browserWindows, getActiveTab, i18n, ignoreChromeErrors, isEmpty, sendTabCmd } from '@/common';
-import { browser } from '@/common/consts';
-import { nest } from '@/common/object';
-import { kFrameId } from '@/common/safe-globals';
-import { addPublicCommands, init } from './init';
-import { tabsOnActivated, tabsOnRemoved } from './tabs';
+import { browserWindows, getActiveTab, i18n, ignoreChromeErrors, sendTabCmd } from '@/common';
+import { FILE_GLOB_ALL, GLOB_ALL } from '@/common/consts';
+import { forEachEntry, forEachValue } from '@/common/object';
+import { kPageMenuCommands } from '@/common/options-defaults';
+import { getScriptName } from '@/common/script';
+import { isEmpty } from '@/common/util';
 import { getScriptById } from './db';
-import { getOption, hookOptions } from './options';
+import { addPublicCommands } from './init';
+import { hookOptionsInit } from './options';
+import { tabsOnActivated, tabsOnRemoved } from './tabs';
 
 /**
- * Page / frame context menu entries for GM_registerMenuCommand.
- *
- * ## End-to-end flow
- * 1. A userscript calls GM_registerMenuCommand in the injected (page) world; the content script
- *    keeps a `menus` map and notifies the background via UpdateTabMenuCommands (see gm-api-content).
- * 2. This module stores that snapshot per (tabId, frameId), merges frames like the popup does, and
- *    mirrors the merged commands as children under a fixed parent item (VM_PAGE_CMD_ROOT).
- * 3. When the user picks an entry, contextMenus.onClicked runs; icon.js delegates here by id prefix.
- *    We verify the tab id baked into the item id matches the tab Chrome passed to onClicked, then
- *    sendTabCmd(..., 'Command', ...) to the frame that registered that command so the same callback
- *    runs as from the extension popup.
- *
- * ## Why we rebuild the menu instead of using contextMenus.onShown
- * Chrome’s chrome.contextMenus API does not expose onShown. Firefox has menus.onShown, but we target
- * Chrome as well. The extension context menu is global (not per-tab in the API), so we maintain one
- * set of dynamic items that we remove/recreate whenever the “display target” tab should change.
- *
- * ## What tab the menu represents (approximation)
- * We rebuild so the list matches the active tab of the focused browser window most of the time:
- * - tabs.onActivated: user switched tab inside a window.
- * - windows.onFocusChanged: user focused another window; we query that window’s active tab.
- * - UpdateTabMenuCommands: if the tab that changed is the current getActiveTab(), refresh the list.
- * - tabs.onUpdated (url): cleared script state for that tab; refresh if it was the active tab.
- * - tabs.onRemoved: drop that tab’s data; rebuild for whichever tab is active now.
- * - init: after creating the root item, one getActiveTab() so startup isn’t empty until a tab switch.
- *
  * ## Limitations
  * - Right-clicking a non-active tab (e.g. split view or rare UI paths) can still show commands for
  *   the active tab; fixing that without onShown would require per-URL patterns or other hacks.
- * - Service worker restarts drop in-memory tabFrameMenus/routeTab until scripts call
- *   GM_registerMenuCommand again (same class of issue as other ephemeral BG state).
- * - Menu item ids embed tabId + scriptId + key; encodeURIComponent(key) keeps odd keys safe.
- * - Per-script submenu (script display name) groups command captions; Chrome removes child items when
- *   the submenu id is removed.
- * - When a script is disabled or removed (db.updateScriptInfo), BG purges cached menus for all tabs/
- *   frames and tabs get PurgeScriptMenus so the popup’s menus map stays in sync.
  */
 
-const contextMenus = chrome.contextMenus;
-
-const KEY_PAGE_MENU_COMMANDS = 'pageMenuCommands';
-const VM_PAGE_CMD_ROOT = 'vmPageCmdRoot';
-const VM_SCRIPT_SUB_PREFIX = 'vmScriptSub:';
-const CMD_PREFIX = 'vmCmd:';
+/** Promisified explicitly on demand because it returns an id in Firefox and not a Promise */
+export const contextMenus = chrome.contextMenus;
+const ROOT_ID = 'cmdRoot';
+const CMD_PREFIX = 'cmd:';
 const MAX_TITLE_LEN = 250;
+const SHORT_ID = Symbol('_id');
+/** @type {chrome.contextMenus.CreateProperties} */
+const SCOPE = {
+  documentUrlPatterns: [GLOB_ALL, FILE_GLOB_ALL],
+  contexts: ['all'],
+};
+const clipString = s => s.length <= MAX_TITLE_LEN ? s : s.slice(0, MAX_TITLE_LEN) + '...';
 
-/** Per-tab, per-frame snapshots of `menus` from the content script (scriptId -> commandKey -> opts). */
-const tabFrameMenus = {};
 /**
- * For each tab, maps `${scriptId}:${commandKey}` -> frameId where that command was last registered.
+ * Per-tab, per-frame snapshots of `menus` from the content script (scriptId -> commandKey -> opts).
+ * @type {{[tabId: string]: {[frameId: string]: {[scriptId: string]: {[menuId: string]: {
+ *   menuOpts: any,
+ *   SHORT_ID: string,
+ * }}}}}}
+ */
+let tabData;
+/**
+ * For each tab, maps the menu command to frameId where that command was last registered.
  * Needed so sendTabCmd targets the same frame as the popup’s idMap resolution.
+ * @type {{[tabId: string]: {[scriptId: string]: {[_id: string]: {
+ *   [frameId: string]: boolean,
+ *   SHORT_ID: string,
+ * }}}}}
  */
-const routeTab = {};
-/** Script submenu ids under VM_PAGE_CMD_ROOT (removing an id drops its command children too). */
-let dynamicSubmenuIds = [];
-let isEnabled = false;
-let isMenuCreated = false;
-
-/** Merge all frames’ menu snapshots for one tab; later frame ids overwrite same script/command keys. */
-function mergeTabMenus(tabId) {
-  const byFrame = tabFrameMenus[tabId];
-  if (!byFrame) return Object.create(null);
-  const frameIds = Object.keys(byFrame).map(Number);
-  const merged = Object.create(null);
-  for (const fid of frameIds) {
-    const m = byFrame[fid];
-    if (!m) continue;
-    for (const sid in m) {
-      const hub = merged[sid] || (merged[sid] = Object.create(null));
-      Object.assign(hub, m[sid]);
-    }
-  }
-  return merged;
-}
-
-/** Command row title (script name is the parent submenu). */
-function formatCommandTitle(item) {
-  const s = item.text || '';
-  return s.length > MAX_TITLE_LEN ? `${s.slice(0, MAX_TITLE_LEN - 1)}...` : s;
-}
-
-/** Submenu title from first registered command’s displayName, or fallback. */
-function formatScriptSubmenuTitle(hub, scriptId) {
-  for (const key in hub) {
-    const name = hub[key]?.displayName;
-    if (name) {
-      const s = `${name}`;
-      return s.length > MAX_TITLE_LEN ? `${s.slice(0, MAX_TITLE_LEN - 1)}...` : s;
-    }
-  }
-  const fb = `#${scriptId}`;
-  return fb.length > MAX_TITLE_LEN ? `${fb.slice(0, MAX_TITLE_LEN - 1)}...` : fb;
-}
-
-/**
- * Replace dynamic submenus for `tabId`: root → script submenu → command rows.
- * We hide the root when there are no commands for this tab.
- */
-function rebuildPageCommandMenuTab(tabId) {
-  if (!contextMenus || tabId == null) return;
-  if (!isEnabled) {
-    return;
-  }
-  if (!isMenuCreated) return;
-  for (const id of dynamicSubmenuIds) {
-    contextMenus.remove(id, ignoreChromeErrors);
-  }
-  dynamicSubmenuIds = [];
-  const merged = mergeTabMenus(tabId);
-  let commandCount = 0;
-  for (const scriptId in merged) {
-    const hub = merged[scriptId];
-    const script = getScriptById(scriptId);
-    let title = formatScriptSubmenuTitle(hub, scriptId);
-    if (!script?.config.enabled) {
-      title = `⛔ ${title}`;
-    }
-    const subId = `${VM_SCRIPT_SUB_PREFIX}${tabId}:${scriptId}`;
-    contextMenus.create({
-      id: subId,
-      parentId: VM_PAGE_CMD_ROOT,
-      title,
-      contexts: ['all'],
-    }, ignoreChromeErrors);
-    dynamicSubmenuIds.push(subId);
-    for (const key in hub) {
-      const item = hub[key];
-      const id = `${CMD_PREFIX}${tabId}:${scriptId}:${encodeURIComponent(key)}`;
-      contextMenus.create({
-        id,
-        parentId: subId,
-        title: formatCommandTitle(item),
-        contexts: ['all'],
-      }, ignoreChromeErrors);
-      commandCount += 1;
-    }
-  }
-  contextMenus.update(VM_PAGE_CMD_ROOT, { visible: commandCount > 0 }, ignoreChromeErrors);
-}
-
-/** If the tab whose menus changed is the active tab (current window), refresh visible context items. */
-function maybeRebuildForActiveTab(updatedTabId) {
-  if (!isEnabled) return;
-  getActiveTab().then((active) => {
-    if (active?.id === updatedTabId) rebuildPageCommandMenuTab(updatedTabId);
-  });
-}
+let tabRoutes;
+let submenuIds;
 
 addPublicCommands({
-  /** Sync in-memory menu state from a content-script frame; see file comment for merge/routing rules. */
-  UpdateTabMenuCommands({ menus, reset }, { tab, [kFrameId]: frameId, [kTop]: isTop }) {
-    if (!tab?.id) return;
-    const routes = nest(routeTab, tab.id);
-    const byTab = nest(tabFrameMenus, tab.id);
-    if (isEmpty(menus)) {
-      if (reset && isTop) {
-        delete tabFrameMenus[tab.id];
-        delete routeTab[tab.id];
-      } else {
-        delete byTab[frameId];
-        if (isEmpty(byTab)) {
-          delete tabFrameMenus[tab.id];
-          delete routeTab[tab.id];
-        }
-      }
-    } else {
-      const oldFrameMenus = byTab[frameId];
-      if (oldFrameMenus) {
-        for (const sid in oldFrameMenus) {
-          for (const key in oldFrameMenus[sid]) {
-            const rkey = `${sid}:${key}`;
-            if (routes[rkey]?.[frameId]) delete routes[rkey][frameId];
-          }
-        }
-      }
-      byTab[frameId] = menus;
-      for (const sid in menus) {
-        for (const key in menus[sid]) {
-          nest(routes, `${sid}:${key}`)[frameId] = true;
-        }
-      }
-    }
-    maybeRebuildForActiveTab(tab.id);
-  },
+  SetMenus: setMenus,
 });
 
-// Drop closed tab’s state, then repoint the global menu at the new active tab (if any).
-tabsOnRemoved.addListener((tabId) => {
-  delete tabFrameMenus[tabId];
-  delete routeTab[tabId];
-  if (!isEnabled) return;
-  getActiveTab().then((active) => {
-    if (active?.id != null) rebuildPageCommandMenuTab(active.id);
-  });
-});
-
-// Primary signal: which tab is active in this window after the user selects a tab.
-tabsOnActivated.addListener(({ tabId }) => {
-  if (isEnabled) rebuildPageCommandMenuTab(tabId);
-});
-
-// Switching focused window does not always fire tabs.onActivated; align menu with that window’s tab.
-if (browserWindows?.onFocusChanged) {
-  browserWindows.onFocusChanged.addListener((windowId) => {
-    if (windowId == null || windowId < 0) return;
-    browser.tabs.query({ active: true, windowId }).then((tabs) => {
-      const t = tabs[0];
-      if (isEnabled && t?.id != null) rebuildPageCommandMenuTab(t.id);
-    });
-  });
-}
-
-function removeDynamic() {
-  for (const id of dynamicSubmenuIds) {
-    contextMenus.remove(id, ignoreChromeErrors);
-  }
-  dynamicSubmenuIds = [];
-}
-
-function setEnabled(value) {
-  isEnabled = !!value;
-  if (!isEnabled) {
-    if (isMenuCreated) {
-      removeDynamic();
-      contextMenus.remove(VM_PAGE_CMD_ROOT, ignoreChromeErrors);
-      isMenuCreated = false;
-    }
+export function setMenus(menus, { tab, [kFrameId]: frameId, [kTop]: isTop }, reset) {
+  if (!tabData || tab?.id == null) {
     return;
   }
-  if (!isMenuCreated) {
-    contextMenus.create({
-      id: VM_PAGE_CMD_ROOT,
-      title: i18n('extName'),
-      contexts: ['all'],
-      visible: false,
-    }, ignoreChromeErrors);
-    isMenuCreated = true;
+  const tabId = tab.id;
+  const routes = tabRoutes[tabId] ??= {};
+  const byTab = tabData[tabId] ??= {};
+  if (isEmpty(menus)) {
+    if (reset && isTop) {
+      delete tabData[tabId];
+      delete tabRoutes[tabId];
+    } else {
+      delete byTab[frameId];
+      if (isEmpty(byTab)) {
+        delete tabData[tabId];
+        delete tabRoutes[tabId];
+      }
+    }
+  } else {
+    byTab[frameId]::forEachEntry(([scriptId, hub]) => {
+      hub::forEachValue(item => {
+        let r;
+        if ((r = routes[scriptId]) && (r = r[item[SHORT_ID]]) && r[frameId]) {
+          delete r[frameId];
+        }
+      });
+    });
+    byTab[frameId] = menus;
+    menus::forEachEntry(([scriptId, hub]) => {
+      for (const key in hub) {
+        const item = hub[key];
+        const _id = item[SHORT_ID] = Math.random().toString(36).slice(2);
+        const scriptRoutes = routes[scriptId] ??= {};
+        const cmdRoutes = scriptRoutes[_id] ??= { [SHORT_ID]: key };
+        cmdRoutes[frameId] = true;
+      }
+    });
   }
-  getActiveTab().then((t) => {
-    if (t?.id != null) rebuildPageCommandMenuTab(t.id);
-  });
+  rebuildForActiveTab(undefined, tabId);
 }
 
-// Create/remove the page context menu based on the Settings option.
-if (contextMenus && init) {
-  init.then(() => {
-    isEnabled = getOption(KEY_PAGE_MENU_COMMANDS);
-    hookOptions((changes) => {
-      if (KEY_PAGE_MENU_COMMANDS in changes) setEnabled(changes[KEY_PAGE_MENU_COMMANDS]);
-    });
-    if (isEnabled) setEnabled(true);
-  });
+export function addMenuConfig(data) {
+  data[kUseMenu] = !!tabData;
 }
 
 /**
@@ -268,31 +102,137 @@ if (contextMenus && init) {
  *
  * @param {string|number} id
  * @param {chrome.tabs.Tab} tab
- * @returns {boolean} true if handled
+ * @param {number} frameId
+ * @returns {boolean?} true if handled
  */
-export function tryHandlePageMenuCommand(id, tab, frameId) {
-  if (!isEnabled) return false;
-  if (typeof id !== 'string' || !id.startsWith(CMD_PREFIX)) return false;
-  const m = /^(\d+):(\d+):([\s\S]+)$/.exec(id.slice(CMD_PREFIX.length));
-  if (!m) return false;
-  const [, encTabId, scriptId, encKey] = m;
-  if (+encTabId !== tab.id) return false;
-  const key = decodeURIComponent(encKey);
-  const routes = routeTab[tab.id]?.[`${scriptId}:${key}`];
-  if (!(routes[frameId] || (frameId = parseInt(Object.keys(routes)[0]), routes[frameId]))) return false;
+export function handlePageMenuCommand(id, { id: tabId }, frameId) {
+  if (!tabData || typeof id !== 'string' || !id.startsWith(CMD_PREFIX)) {
+    return;
+  }
+  const [/*prefix*/, sTabId, sScriptId, _id] = id.split(':');
+  if (+sTabId !== tabId) {
+    return;
+  }
+  const routes = tabRoutes[sTabId]?.[sScriptId]?.[_id];
+  if (!routes || !routes[frameId] && !routes[frameId = +Object.keys(routes)[0]]) {
+    return;
+  }
   // Synthetic event so injected Command handler runs like a context-menu activation from the popup.
-  const evt = {
-    type: 'mouseup',
-    button: 2,
-    shiftKey: false,
-    altKey: false,
-    ctrlKey: false,
-    metaKey: false,
-  };
-  sendTabCmd(tab.id, 'Command', {
-    id: +scriptId,
-    key,
-    evt,
+  return sendTabCmd(tabId, 'Command', {
+    id: +sScriptId,
+    key: routes[SHORT_ID],
+    evt: {
+      type: 'mouseup',
+      button: 2,
+    },
   }, frameId == null ? undefined : { [kFrameId]: frameId });
-  return true;
+}
+
+function onTabRemoved(tabId) {
+  if (!tabData) return;
+  delete tabData[tabId];
+  delete tabRoutes[tabId];
+  rebuildForActiveTab();
+}
+
+function onTabActivated({ tabId }) {
+  if (!tabData) return;
+  rebuildPageCommandMenuTab(tabId);
+}
+
+async function onFocusChanged(windowId) {
+  if (!tabData || windowId < 0) return;
+  rebuildForActiveTab(windowId);
+}
+// Create/remove the page context menu based on the Settings option.
+
+if (contextMenus) {
+  hookOptionsInit(({ [kPageMenuCommands]: state }) => {
+    if (state != null && state !== !!tabData) setEnabled(state);
+  });
+}
+
+/**
+ * Replace dynamic submenus for `tabId`: root → script submenu → command rows.
+ * We hide the root when there are no commands for this tab.
+ */
+function rebuildPageCommandMenuTab(tabId) {
+  if (!tabData || !submenuIds || tabId == null) {
+    return;
+  }
+  removeSubMenus();
+  const merged = {};
+  tabData[tabId]::forEachValue(byFrame => {
+    for (const scriptId in byFrame) {
+      Object.assign(merged[scriptId] ??= {}, byFrame[scriptId]);
+    }
+  });
+  let commandCount = 0;
+  for (const scriptId in merged) {
+    const hub = merged[scriptId];
+    const script = getScriptById(scriptId);
+    const subId = `${tabId}:${scriptId}`;
+    contextMenus.create({
+      id: subId,
+      parentId: ROOT_ID,
+      title: (script?.config.enabled ? '' : '⛔ ')
+        + (script ? clipString(getScriptName(script)) : `#${scriptId}`),
+      ...SCOPE,
+    }, ignoreChromeErrors);
+    submenuIds.push(subId);
+    for (const key in hub) {
+      const item = hub[key];
+      const id = `${CMD_PREFIX}${subId}:${item[SHORT_ID]}`;
+      contextMenus.create({
+        id,
+        parentId: subId,
+        title: clipString(item.text || ''),
+        ...SCOPE,
+      }, ignoreChromeErrors);
+      commandCount += 1;
+    }
+  }
+  contextMenus.update(ROOT_ID, { visible: commandCount > 0 }, ignoreChromeErrors);
+}
+
+async function rebuildForActiveTab(windowId, updatedTabId) {
+  const t = await getActiveTab(windowId);
+  if (t && (updatedTabId == null || t.id === updatedTabId)) {
+    rebuildPageCommandMenuTab(t.id);
+  }
+}
+
+function removeSubMenus() {
+  if (submenuIds) {
+    for (const id of submenuIds) {
+      contextMenus.remove(id, ignoreChromeErrors);
+    }
+  }
+  submenuIds = tabData && [];
+}
+
+function setEnabled(value) {
+  tabData = value && {};
+  tabRoutes = value && {};
+  const onOff = value ? 'addListener' : 'removeListener';
+  browserWindows?.onFocusChanged[onOff](onFocusChanged);
+  tabsOnActivated[onOff](onTabActivated);
+  tabsOnRemoved[onOff](onTabRemoved);
+  if (!tabData) {
+    if (submenuIds) {
+      removeSubMenus();
+      contextMenus.remove(ROOT_ID, ignoreChromeErrors);
+    }
+    return;
+  }
+  if (!submenuIds) {
+    contextMenus.create({
+      id: ROOT_ID,
+      title: i18n('extName'),
+      visible: false,
+      ...SCOPE,
+    }, ignoreChromeErrors);
+    submenuIds = [];
+  }
+  rebuildForActiveTab();
 }

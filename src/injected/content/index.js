@@ -45,6 +45,7 @@ async function init() {
     bridge.post('Expose', data[EXPOSE]);
   }
   if (objectKeys(ids).length) {
+    bridge[kUseMenu] = data[kUseMenu];
     onScripts.forEach(fn => fn(data));
     await injectScripts(data, info, isXml);
   }
