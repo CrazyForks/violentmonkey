@@ -13,7 +13,7 @@ import { setBadge } from './icon';
 import { addOwnCommands, addPublicCommands } from './init';
 import { clearNotifications } from './notifications';
 import { hookOptionsInit } from './options';
-import { addMenuConfig, setMenus } from './page-context-menu-commands';
+import { addMenuConfig, setMenus } from './page-menu-commands';
 import { popupTabs } from './popup-tracker';
 import { clearRequestsByTabId, reifyRequests } from './requests';
 import { kSetCookie } from './requests-core';

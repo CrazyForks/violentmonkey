@@ -7,7 +7,7 @@ import { popupTabs } from './popup-tracker';
 import storage, { S_CACHE } from './storage';
 import { forEachTab, getTabUrl, injectableRe, openDashboard, tabsOnRemoved, tabsOnUpdated } from './tabs';
 import { testBlacklist } from './tester';
-import { contextMenus, handlePageMenuCommand } from './page-context-menu-commands';
+import { contextMenus, handlePageMenuCommand } from './page-menu-commands';
 import { FIREFOX, ua } from './ua';
 
 /** 1x + HiDPI 1.5x, 2x */

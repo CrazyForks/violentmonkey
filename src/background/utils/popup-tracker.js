@@ -3,7 +3,7 @@ import cache from './cache';
 import { getData, getScriptsByURL } from './db';
 import { badges, getFailureReason } from './icon';
 import { addOwnCommands, addPublicCommands, commands } from './init';
-import { setMenus } from './page-context-menu-commands';
+import { setMenus } from './page-menu-commands';
 
 /** @type {{[tabId: string]: chrome.runtime.Port}} */
 export const popupTabs = {};
