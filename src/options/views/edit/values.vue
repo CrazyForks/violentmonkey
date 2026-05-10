@@ -431,6 +431,7 @@ function onRestore(trashKey) {
   updateValue(entry);
 }
 function onEdit(key) {
+  onCancel();
   const parsed = [];
   const value = getValue(key, false, parsed);
   const [jsonValue] = parsed;
@@ -483,12 +484,12 @@ async function onSave(arg) {
 }
 function onCancel() {
   const cur = current.value;
-  if (cur.dirty) {
+  if (cur?.dirty) {
     const str = cm.getValue().trim();
     const {jsonValue = str} = cur;
     addToTrash(cur.key, dumpScriptValue(jsonValue), cutLength(str));
   }
-  current.value = null;
+  if (cur) current.value = null;
 }
 function onChange(isChanged, str = cm.getValue()) {
   const cur = current.value;
