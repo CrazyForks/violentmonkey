@@ -9,7 +9,6 @@ const kResponseXML = 'responseXML';
 const kDocument = 'document';
 const kRaw = 'raw';
 const kOnerror = 'on' + ERROR;
-const kOnload = 'onload';
 const LOAD = 'load';
 const EVENTS_TO_NOTIFY = [
   'abort',
@@ -221,11 +220,9 @@ export function onRequestCreate(opts, context, fileName) {
     }
   }
   if (context.async) res = new SafePromise((resolve, reject) => {
-    const { [kOnload]: onload, [kOnerror]: onerror } = opts;
-    opts[kOnload] = onload ? v => { resolve(v); onload(v); } : resolve;
-    opts[kOnerror] = onerror ? v => { reject(v); onerror(v); } : reject;
-    if (!onload) events[0][LOAD] = -1;
-    if (!onerror) events[0][ERROR] = -1;
+    const { [LOAD]: onload, [ERROR]: onerror } = cb[0];
+    cb[0][LOAD] = onload ? v => { resolve(v); onload(v); } : (events[0][LOAD] = -1, resolve);
+    cb[0][ERROR] = onerror ? v => { reject(v); onerror(v); } : (events[0][ERROR] = -1, reject);
   });
   idMap[id] = req;
   data = data == null && []
