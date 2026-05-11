@@ -10,10 +10,11 @@ const kDocument = 'document';
 const kRaw = 'raw';
 const kOnerror = 'on' + ERROR;
 const kOnload = 'onload';
+const LOAD = 'load';
 const EVENTS_TO_NOTIFY = [
   'abort',
   ERROR,
-  'load',
+  LOAD,
   'loadend',
   'loadstart',
   'progress',
@@ -210,21 +211,22 @@ export function onRequestCreate(opts, context, fileName) {
     anonymous = !withCredentials,
     [UPLOAD]: upload,
   } = opts;
-  // setting opts.onload and onerror before EVENTS_TO_NOTIFY
-  if (context.async) res = new SafePromise((resolve, reject) => {
-    const { [kOnload]: onload, [kOnerror]: onerror } = opts;
-    opts[kOnload] = onload ? v => { resolve(v); onload(v); } : resolve;
-    opts[kOnerror] = onerror ? v => { reject(v); onerror(v); } : reject;
-  });
   for (let i = 0, obj, key, val, passes = upload && isObject(upload) ? 2 : 1; i < passes; i++) {
     obj = i ? nullObjFrom(upload) : opts;
     for (key of EVENTS_TO_NOTIFY) {
       if ((val = obj[`on${key}`]) && isFunction(val)) {
         cb[i][key] = val;
-        events[i][key] = true;
+        events[i][key] = 1;
       }
     }
   }
+  if (context.async) res = new SafePromise((resolve, reject) => {
+    const { [kOnload]: onload, [kOnerror]: onerror } = opts;
+    opts[kOnload] = onload ? v => { resolve(v); onload(v); } : resolve;
+    opts[kOnerror] = onerror ? v => { reject(v); onerror(v); } : reject;
+    if (!onload) events[0][LOAD] = -1;
+    if (!onerror) events[0][ERROR] = -1;
+  });
   idMap[id] = req;
   data = data == null && []
     // `binary` is for TM/GM-compatibility + non-objects = must use a string `data`

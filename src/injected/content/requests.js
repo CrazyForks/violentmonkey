@@ -150,10 +150,11 @@ addBackgroundHandlers({
 async function requestVirtualUrl(msg, url, isDataUri, realm) {
   const { id, [kFileName]: fileName } = msg;
   const events = msg.events[0];
-  const wantsResult = events[LOAD] || events[LOADEND];
+  const wantsResult = events[LOAD] > 0 || events[LOADEND] > 0;
   const wantsBlob = !wantsResult || isBlobXhr(msg);
   const data = !isDataUri ? await importBlob(url, wantsBlob)
-    : wantsResult || url.length > 100e3 ? decodeResource(url, wantsBlob ? SafeBlob : SafeUint8Array)
+    : wantsResult || url.length > 100e3
+      ? decodeResource(url, wantsBlob ? SafeBlob : SafeUint8Array, true)
       : url;
   if (fileName) {
     // download in bg to a) circumvent CSP in Firefox and b) use a single throttled download chain
