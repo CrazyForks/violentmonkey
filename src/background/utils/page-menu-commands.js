@@ -144,7 +144,6 @@ async function onFocusChanged(windowId) {
   if (!tabData || windowId < 0) return;
   rebuildForActiveTab(windowId);
 }
-// Create/remove the page context menu based on the Settings option.
 
 if (contextMenus) {
   hookOptionsInit(({ [kPageMenuCommands]: state }, firstRun) => {

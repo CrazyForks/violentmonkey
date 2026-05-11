@@ -1,6 +1,7 @@
 import {
   getActiveTab, getScriptName, getScriptPrettyUrl, getUniqId, sendTabCmd,
-} from '@/common';import {
+} from '@/common';
+import {
   __CODE, BLACKLIST, GLOB_ALL, HOMEPAGE_URL, KNOWN_INJECT_INTO, kOrigTag, kTag, META_STR,
   METABLOCK_RE, NEWLINE_END_RE, TL_AWAIT, UNWRAP, XHR_COOKIE_RE,
 } from '@/common/consts';
@@ -8,6 +9,7 @@ import initCache from '@/common/cache';
 import {
   deepCopy, forEachEntry, forEachValue, mapEntry, objectPick, objectSet,
 } from '@/common/object';
+import { kPageMenuCommands } from '@/common/options-defaults';
 import { CACHE_KEYS, getScriptsByURL, kTryVacuuming, PROMISE, REQ_KEYS, VALUE_IDS } from './db';
 import { setBadge } from './icon';
 import { addOwnCommands, addPublicCommands } from './init';
@@ -139,6 +141,16 @@ const OPT_HANDLERS = {
       }
     }
     injectInto = value;
+  },
+  [kPageMenuCommands](enable) {
+    cache.some(val => {
+      const inject = val[INJECT];
+      if (inject && kUseMenu in inject) {
+        inject[kUseMenu] = enable;
+        if (contentScriptsAPI) unregisterScriptFF(val);
+        // TODO: maybe re-register automatically?
+      }
+    });
   },
   /** WARNING! toggleXhrInject should precede togglePreinject as it sets xhrInject variable */
   xhrInject: toggleXhrInject,
