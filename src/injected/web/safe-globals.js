@@ -185,7 +185,8 @@ export const VAULT = (() => {
     ],
     builtinFuncs = res[i += 1] || (funcs => {
       // extracting commonly hijacked functions that still work when bound to a real `window`
-      for (const key of ['setInterval', 'setTimeout']) {
+      // (including clearXXX to access the same internal DOM registry of timers)
+      for (const key of ['setInterval', 'setTimeout', 'clearInterval', 'clearTimeout']) {
         funcs[key] = setPrototypeOf(describeProperty(srcWindow, key), null);
       }
       return funcs;
