@@ -123,7 +123,7 @@
             <div class="upd ellipsis" :title="item.upd" :data-error="item.updError"/>
           </div>
           <div class="submenu-buttons"
-               v-show="showButtons(item)">
+               :data-show="showButtons(item)">
             <!-- Using a standard tooltip that's shown after a delay to avoid nagging the user -->
             <div class="submenu-button" :tabIndex @click="onEditScript(item)"
                  :title="i18n('buttonEditClickHint')">
@@ -136,6 +136,10 @@
               @click="showExtras">
               <icon name="more"/>
             </div>
+            <a v-if="item.c" class="submenu-button"
+               :href="VM_DOCS_INJECT_INTO"
+               :data-message="INJECT_LEARN"
+               v-bind="EXTERNAL_LINK_PROPS">C</a>
           </div>
           <div v-if="item.excludes" class="excludes-menu mb-1c mr-1c">
             <button v-for="(val, key) in item.excludes[1]" :key
@@ -218,7 +222,7 @@
 
 <script setup>
 import { computed, nextTick, onActivated, onMounted, reactive, ref } from 'vue';
-import { VM_DOCS_MATCHING } from '@/common/consts';
+import { VM_DOCS_INJECT_INTO, VM_DOCS_MATCHING } from '@/common/consts';
 import options from '@/common/options';
 import optionsDefaults, {
   kFiltersPopup, kPopupWidth, kUpdateEnabledScriptsOnly,
@@ -241,6 +245,7 @@ let focusBug;
 const HOME = extensionManifest.homepage_url.split('/')[2];
 const NAME = `${extensionManifest.name} ${process.env.VM_VER}`;
 const TARDY_MATCH = i18n('msgTardyMatch');
+const INJECT_LEARN = '@inject-into content\n' + i18n('learnInjectionMode');
 const SCRIPT_CLS = '.script';
 const RUN_AT_ORDER = ['start', 'body', 'end', 'idle'];
 const needsReload = reactive({});

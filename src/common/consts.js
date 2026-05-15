@@ -52,6 +52,7 @@ export const UNWRAP = 'unwrap';
 export const FETCH_OPTS = 'fetchOpts';
 export const ERR_BAD_PATTERN = 'Bad pattern:';
 export const VM_HOME = 'https://violentmonkey.github.io/';
+export const VM_DOCS_INJECT_INTO = VM_HOME + 'posts/inject-into-context/';
 export const VM_DOCS_MATCHING = VM_HOME + 'api/matching/';
 export const GLOB_ALL = '*://*/*';
 export const FILE_GLOB_ALL = 'file://*/*';

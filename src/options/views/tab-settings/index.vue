@@ -54,7 +54,7 @@
             <select v-for="opt in ['defaultInjectInto']" v-model="settings[opt]" :key="opt">
               <option v-for="(_, mode) in items[opt]" :key="mode" v-text="mode" />
             </select>
-            <a class="ml-1" :href="VM_HOME + 'posts/inject-into-context/'" v-bind="EXTERNAL_LINK_PROPS" v-text="i18n('learnInjectionMode')"/>
+            <a class="ml-1" :href="VM_DOCS_INJECT_INTO" v-bind="EXTERNAL_LINK_PROPS" v-text="i18n('learnInjectionMode')"/>
           </label>
           <tooltip :content="i18n('labelXhrInjectHint')">
             <setting-check name="xhrInject">
@@ -118,7 +118,7 @@
 
 <script>
 import { i18n } from '@/common';
-import { KNOWN_INJECT_INTO, VM_HOME } from '@/common/consts';
+import { KNOWN_INJECT_INTO, VM_DOCS_INJECT_INTO } from '@/common/consts';
 import options from '@/common/options';
 import { kScriptTemplate, kUpdateEnabledScriptsOnly, kGmCookieHttpOnly } from '@/common/options-defaults';
 import { keyboardService } from '@/common/keyboard';
